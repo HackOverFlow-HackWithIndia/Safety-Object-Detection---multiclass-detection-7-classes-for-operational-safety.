@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Duality AI - Space Station Safety Detection</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <!-- AI Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+    <script src="https://docs.opencv.org/4.8.0/opencv.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            color: #e2e8f0;
+            background: linear-gradient(135deg, #0f172a, #1e293b);
+            position: relative;
+            overflow-x: hidden;
+        }
+        body::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: radial-gradient(circle at 1px 1px, rgba(203, 213, 225, 0.15) 1px, transparent 0);
+            background-size: 3rem 3rem;
+            z-index: -1;
+        }
+        .glass-panel {
+            background-color: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 1rem;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+            transition: border-color 0.3s ease, box-shadow 0.3s ease, transform 0.3s ease;
+        }
+        .glass-panel:hover {
+            border-color: rgba(59, 130, 246, 0.4);
+            transform: translateY(-8px);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        }
+        .btn-primary {
+            background-color: #3b82f6;
+            transition: background-color 0.3s ease;
+        }
+        .btn-primary:hover {
+            background-color: #2563eb;
+        }
+        .loader {
+            border-top-color: #3b82f6;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in-up { animation: fadeInUp 0.8s ease-out forwards; }
+        .result-item { opacity: 0; transform: translateX(-20px); transition: opacity 0.4s ease-out, transform 0.4s ease-out, background-color 0.3s ease; }
+        .result-item:hover { background-color: rgba(255, 255, 255, 0.2) !important; }
+        .result-item.visible { opacity: 1; transform: translateX(0); }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-5xl mx-auto">
+        <header class="text-center mb-8 opacity-0 animate-fade-in-up">
+            <h1 class="text-4xl md:text-5xl font-bold text-white tracking-tight">Space Station Safety Detection</h1>
+            <p class="mt-4 text-lg text-slate-400">An AI-powered system to identify critical safety equipment in real-time.</p>
+        </header>
+
+        <main class="grid grid-cols-1 lg:grid-cols-2 gap-8 opacity-0 animate-fade-in-up" style="animation-delay: 0.2s;">
+            <!-- Left Panel -->
+            <div class="glass-panel p-6">
+                <h2 class="text-2xl font-semibold text-white mb-4 border-b border-slate-700/50 pb-2">Live Demo</h2>
+                <div class="mb-4">
+                    <label for="imageUpload" class="block mb-2 text-sm font-medium text-slate-300">Upload a Test Image</label>
+                    <input type="file" id="imageUpload" accept="image/*" class="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-500 file:text-white hover:file:bg-blue-600 cursor-pointer">
+                </div>
+                <div id="file-info" class="hidden text-sm text-slate-400 bg-slate-800/50 p-3 rounded-lg mb-4"></div>
+                <div id="image-container" class="relative w-full aspect-video bg-slate-900/50 rounded-lg flex items-center justify-center border-2 border-dashed border-slate-700">
+                    <p id="placeholder-text" class="text-slate-500">Image preview will appear here</p>
+                    <canvas id="canvas" class="absolute top-0 left-0 w-full h-full rounded-lg"></canvas>
+                    <div id="loader" class="absolute hidden w-12 h-12 rounded-full border-4 border-slate-700 loader"></div>
+                </div>
+                <button id="detect-button" class="w-full btn-primary text-white font-bold py-3 px-4 rounded-lg mt-6 text-lg disabled:bg-slate-600 disabled:cursor-not-allowed" disabled>
+                    <i class="fas fa-search mr-2"></i>Detect Equipment
+                </button>
+            </div>
+
+            <!-- Right Panel -->
+            <div class="glass-panel p-6">
+                <h2 class="text-2xl font-semibold text-white mb-4 border-b border-slate-700/50 pb-2">Detection Results</h2>
+                <div id="results-container" class="space-y-3 h-64 overflow-y-auto pr-2">
+                    <p id="results-placeholder" class="text-slate-500 text-center mt-8">Results will be displayed here after detection.</p>
+                </div>
+                <div class="mt-6">
+                     <h3 class="text-xl font-semibold text-white mb-3 border-b border-slate-700/50 pb-2">Model Maintenance with Falcon</h3>
+                     <p class="text-slate-400 text-sm">This model's accuracy is maintained using Duality's Falcon platform. When real-world conditions change, Falcon generates new synthetic data reflecting these changes. The model is then retrained on this updated dataset to ensure it remains reliable for mission-critical safety monitoring.</p>
+                </div>
+            </div>
+        </main>
+
+        <footer class="mt-8 glass-panel p-6 opacity-0 animate-fade-in-up" style="animation-delay: 0.4s;">
+            <h2 class="text-2xl font-semibold text-white mb-4 border-b border-slate-700/50 pb-2">Our Approach</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 text-slate-400 text-sm">
+                <div class="p-4 rounded-lg"><h3 class="font-semibold text-white mb-2"><i class="fas fa-database mr-2 text-blue-400"></i>Dataset & Preprocessing</h3><p>We utilized the provided synthetic dataset from Duality's Falcon platform, analyzing its unique characteristics like varied lighting and occlusions to inform our training strategy.</p></div>
+                <div class="p-4 rounded-lg"><h3 class="font-semibold text-white mb-2"><i class="fas fa-cogs mr-2 text-blue-400"></i>Model Training</h3><p>A YOLO (You Only Look Once) model was trained as our base. We iteratively fine-tuned hyperparameters, such as learning rate and batch size, to improve detection accuracy.</p></div>
+                <div class="p-4 rounded-lg"><h3 class="font-semibold text-white mb-2"><i class="fas fa-chart-line mr-2 text-blue-400"></i>Evaluation & Optimization</h3><p>Model performance was benchmarked using the mAP@0.5 metric. We analyzed failure cases from the confusion matrix to guide further optimization and improve class-specific recall.</p></div>
+            </div>
+        </footer>
+    </div>
+
+<script>
+    // --- Constants and Globals ---
+    const imageUpload = document.getElementById('imageUpload');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const placeholderText = document.getElementById('placeholder-text');
+    const detectButton = document.getElementById('detect-button');
+    const loader = document.getElementById('loader');
+    const resultsContainer = document.getElementById('results-container');
+    const resultsPlaceholder = document.getElementById('results-placeholder');
+    const fileInfo = document.getElementById('file-info');
+    
+    let uploadedImage = null;
+    let session = null;
+    
+    // --- Model and Class Configuration ---
+    const modelPath = './best.onnx'; // Make sure best.onnx is in the same folder
+    const modelInputShape = [1, 3, 640, 640];
+    const classes = ['EmergencyPhone', 'FireAlarm', 'FireExtinguisher', 'FirstAidBox', 'NitrogenTank', 'OxygenTank', 'SafetySwitchPanel'];
+    const COLORS = {
+        'OxygenTank': '#34D399', 'NitrogenTank': '#F87171', 'FirstAidBox': '#60A5FA',
+        'FireAlarm': '#FBBF24', 'SafetySwitchPanel': '#A78BFA', 'EmergencyPhone': '#F472B6',
+        'FireExtinguisher': '#FB923C'
+    };
+
+    // --- UI Event Listeners (attached immediately) ---
+    imageUpload.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        displayFileInfo(file);
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            uploadedImage = new Image();
+            uploadedImage.onload = () => {
+                placeholderText.style.display = 'none';
+                if (session) {
+                    detectButton.disabled = false;
+                }
+                drawImageOnCanvas();
+                clearResults();
+            };
+            uploadedImage.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+    });
+
+    detectButton.addEventListener('click', async () => {
+        if (!uploadedImage || !session) return;
+
+        setLoadingState(true);
+        clearResults();
+
+        try {
+            const detections = await runModel();
+            drawDetections(detections);
+            displayResults(detections);
+        } catch(e) {
+            console.error("Error during model inference:", e);
+            alert("An error occurred while running the detection. Check the console.");
+        } finally {
+            setLoadingState(false);
+        }
+    });
+
+    // --- Main Logic (loads AI models on page load) ---
+    document.addEventListener('DOMContentLoaded', async () => {
+        resultsPlaceholder.textContent = "Loading AI model, please wait...";
+        try {
+            await new Promise((resolve, reject) => {
+                window.addEventListener('load', () => {
+                    setTimeout(() => { 
+                        if (typeof cv !== 'undefined' && cv.Mat) {
+                            resolve();
+                        } else {
+                            reject(new Error("OpenCV.js failed to load."));
+                        }
+                    }, 100);
+                });
+            });
+            console.log("OpenCV.js is ready.");
+
+            session = await ort.InferenceSession.create(modelPath);
+            console.log("ONNX model session loaded successfully.");
+            
+            resultsPlaceholder.textContent = "Results will be displayed here after detection.";
+            if (uploadedImage) {
+                detectButton.disabled = false;
+            }
+
+        } catch (e) {
+            console.error("Failed to load AI model:", e);
+            resultsContainer.innerHTML = `<div class="text-center p-4 bg-red-900/50 border border-red-500 rounded-lg">
+                <p class="font-bold text-red-400">Error: Could not load AI model.</p>
+                <p class="text-sm text-slate-300 mt-2">Please check your internet connection and refresh the page. See the console (F12) for more details.</p>
+            </div>`;
+            detectButton.textContent = 'AI Model Failed to Load';
+            detectButton.disabled = true;
+        }
+    });
+
+    // --- AI Helper Functions ---
+    async function runModel() {
+        const tensor = await preprocess(uploadedImage);
+        const feeds = { 'images': tensor };
+        const results = await session.run(feeds);
+        const outputKey = Object.keys(results)[0];
+        return postprocess(results[outputKey].data, uploadedImage.width, uploadedImage.height);
+    }
+
+    async function preprocess(image) {
+        const modelWidth = modelInputShape[2];
+        const modelHeight = modelInputShape[3];
+        
+        const mat = cv.imread(image); 
+
+        const matResized = new cv.Mat();
+        cv.resize(mat, matResized, new cv.Size(modelWidth, modelHeight), 0, 0, cv.INTER_AREA);
+
+        const matRGB = new cv.Mat();
+        cv.cvtColor(matResized, matRGB, cv.COLOR_BGR2RGB);
+        
+        const input = cv.blobFromImage(matRGB, 1 / 255.0, new cv.Size(modelWidth, modelHeight), new cv.Scalar(), true, false);
+        
+        mat.delete();
+        matResized.delete();
+        matRGB.delete();
+        
+        const tensor = new ort.Tensor('float32', input.data32F, modelInputShape);
+        input.delete();
+        return tensor;
+    }
+
+    function postprocess(output, originalWidth, originalHeight) {
+        const numClasses = classes.length;
+        const numProps = 4 + numClasses; 
+        const gridCount = 8400; // YOLOv8 has 8400 proposals
+
+        const transposed = [];
+        for (let i = 0; i < gridCount; i++) {
+            const record = [];
+            for (let j = 0; j < numProps; j++) {
+                record.push(output[j * gridCount + i]);
+            }
+            transposed.push(record);
+        }
+        
+        const boxes = [];
+        for (const record of transposed) {
+            const [x_center, y_center, width, height] = record.slice(0, 4);
+            const class_probs = record.slice(4);
+            
+            let max_prob = 0;
+            let class_index = -1;
+            for(let i=0; i<class_probs.length; i++) {
+                if (class_probs[i] > max_prob) {
+                    max_prob = class_probs[i];
+                    class_index = i;
+                }
+            }
+
+            if (max_prob < 0.5) continue; 
+
+            const x = (x_center - width / 2) / modelInputShape[2] * originalWidth;
+            const y = (y_center - height / 2) / modelInputShape[3] * originalHeight;
+            const w = width / modelInputShape[2] * originalWidth;
+            const h = height / modelInputShape[3] * originalHeight;
+            
+            boxes.push({ box: [x, y, w, h], label: classes[class_index], score: max_prob });
+        }
+        
+        return nms(boxes, 0.5);
+    }
+    
+    function nms(boxes, iouThreshold) {
+        boxes.sort((a, b) => b.score - a.score);
+        const selected = [];
+        const isSelected = new Array(boxes.length).fill(false);
+        for (let i = 0; i < boxes.length; i++) {
+            if (isSelected[i]) continue;
+            selected.push(boxes[i]);
+            isSelected[i] = true;
+            for (let j = i + 1; j < boxes.length; j++) {
+                if (isSelected[j]) continue;
+                const iou = calculateIoU(boxes[i].box, boxes[j].box);
+                if (iou > iouThreshold) isSelected[j] = true;
+            }
+        }
+        return selected;
+    }
+
+    function calculateIoU(boxA, boxB) {
+        const xA = Math.max(boxA[0], boxB[0]);
+        const yA = Math.max(boxA[1], boxB[1]);
+        const xB = Math.min(boxA[0] + boxA[2], boxB[0] + boxB[2]);
+        const yB = Math.min(boxA[1] + boxA[3], boxB[1] + boxB[3]);
+        const interArea = Math.max(0, xB - xA) * Math.max(0, yB - yA);
+        const boxAArea = boxA[2] * boxA[3];
+        const boxBArea = boxB[2] * boxB[3];
+        const iou = interArea / (boxAArea + boxBArea - interArea);
+        return iou;
+    }
+
+    // --- UI Update Functions ---
+    function drawImageOnCanvas() {
+        canvas.width = uploadedImage.naturalWidth || uploadedImage.width;
+        canvas.height = uploadedImage.naturalHeight || uploadedImage.height;
+        ctx.drawImage(uploadedImage, 0, 0, canvas.width, canvas.height);
+    }
+
+    function drawDetections(detections) {
+        drawImageOnCanvas(); 
+        detections.forEach(({ box, label, score }) => {
+            const [x, y, width, height] = box;
+            const color = COLORS[label] || '#FFFFFF';
+            ctx.strokeStyle = color;
+            ctx.lineWidth = Math.max(2, Math.round(canvas.width / 250));
+            ctx.strokeRect(x, y, width, height);
+            
+            const text = `${label} ${(score * 100).toFixed(0)}%`;
+            ctx.font = `${Math.max(12, Math.round(canvas.width / 60))}px Inter`;
+            const textWidth = ctx.measureText(text).width;
+            
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y - Math.max(14, Math.round(canvas.width / 50)), textWidth + 10, Math.max(14, Math.round(canvas.width / 50)));
+            ctx.fillStyle = '#000000';
+            ctx.fillText(text, x + 5, y - 5);
+        });
+    }
+
+    function displayResults(detections) {
+        resultsPlaceholder.style.display = 'none';
+        resultsContainer.innerHTML = '';
+        if (detections.length === 0) {
+            resultsContainer.innerHTML = `<p class="text-slate-500 text-center mt-8">No objects detected.</p>`;
+            return;
+        }
+        detections.forEach((detection, index) => {
+            const { label, score } = detection;
+            const color = COLORS[label] || '#FFFFFF';
+            const resultElement = document.createElement('div');
+            resultElement.className = 'flex items-center justify-between p-3 rounded-lg result-item';
+            resultElement.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+            resultElement.innerHTML = `<div class="flex items-center"><span class="w-4 h-4 rounded-full mr-3" style="background-color: ${color};"></span><span class="font-medium text-white">${label}</span></div><span class="font-mono text-sm text-slate-300">${(score * 100).toFixed(1)}%</span>`;
+            resultsContainer.appendChild(resultElement);
+            setTimeout(() => resultElement.classList.add('visible'), index * 100);
+        });
+    }
+
+    function displayFileInfo(file) {
+        fileInfo.classList.remove('hidden');
+        const fileSize = file.size > 1024 * 1024 ? `${(file.size / (1024 * 1024)).toFixed(2)} MB` : `${(file.size / 1024).toFixed(2)} KB`;
+        fileInfo.innerHTML = `<p><span class="font-semibold">File:</span> ${file.name}</p><p><span class="font-semibold">Size:</span> ${fileSize}</p>`;
+    }
+
+    function setLoadingState(isLoading) {
+        loader.style.display = isLoading ? 'block' : 'none';
+        detectButton.disabled = isLoading;
+        detectButton.innerHTML = isLoading ? '<i class="fas fa-spinner fa-spin mr-2"></i>Analyzing...' : '<i class="fas fa-search mr-2"></i>Detect Equipment';
+    }
+
+    function clearResults() {
+        resultsContainer.innerHTML = '';
+        resultsPlaceholder.style.display = 'block';
+    }
+</script>
+</body>
+</html>
+

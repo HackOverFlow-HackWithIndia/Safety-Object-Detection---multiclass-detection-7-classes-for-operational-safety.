@@ -1,0 +1,6 @@
+train: C:/HWI/train/train1/images
+val:   C:/HWI/train/val1/images
+test:  C:/HWI/test/images
+
+nc: 7
+names: ['OxygenTank','NitrogenTank','FirstAidBox','FireAlarm','SafetySwitchPanel','EmergencyPhone','FireExtinguisher']
